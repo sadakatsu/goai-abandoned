@@ -1,0 +1,9 @@
+NEW ROW         NEW COLUMN	    ORIENTATION
+row             column	        normal
+row             D - column - 1	flipped H
+D - row - 1     column	        flipped V
+D - row - 1     D - column - 1  flipped H+V OR rotated 180
+column	        row	            flipped H, rotated left OR flipped V, rotated right
+column	        D - row - 1	    rotated left
+D - column - 1	row	            rotated right
+D - column - 1	D - row - 1	    flipped H, rotated right OR flipped V, rotated left

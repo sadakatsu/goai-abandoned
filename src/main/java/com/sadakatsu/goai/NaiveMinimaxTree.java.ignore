@@ -1,0 +1,471 @@
+package com.sadakatsu.goai;
+
+import static com.sadakatsu.go.domain.Pass.PASS;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Stack;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.RecursiveTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Map.Entry;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.sadakatsu.go.domain.Coordinate;
+import com.sadakatsu.go.domain.Game;
+import com.sadakatsu.go.domain.Group;
+import com.sadakatsu.go.domain.Move;
+import com.sadakatsu.go.domain.Pass;
+import com.sadakatsu.go.domain.intersection.Intersection;
+import com.sadakatsu.go.domain.intersection.Player;
+import com.sadakatsu.go.domain.intersection.Stone;
+import com.sadakatsu.go.domain.outcome.Outcome;
+import com.sadakatsu.go.domain.outcome.Win;
+import com.sadakatsu.goai.GoAi.Evaluation;
+
+/* This class is intended to be used as a spike only.  The Go search space is so large that not taking advantage of
+ * transformational invariance is ridiculous.  It is also likely ludicrous to build the tree, then perform a search
+ * through the entire structure to determine the scores.  The space and time constraints are exhorbitant.  However, I
+ * need to be sure that I have a basic version working before I try to tackle the difficulties that transformational
+ * invariance (how to handle entering a similar node that has a different orientation than the actual game?) and live
+ * updating of results (how to avoid cycles such as in the case of a pass on an empty board?  how should I handle leaf
+ * nodes?) introduce.
+ * 
+ * This class only tries to ensure that I have solved the problems related to storing heuristic evaluations, exploring
+ * children nodes for actual scores, and resolving complete games.
+ */
+public class NaiveMinimaxTree {
+//    private static final AtomicInteger COUNT                  = new AtomicInteger();
+//    private static final boolean       PARALLELIZE_EVALUATION = false;
+//    private static final boolean       PARALLELIZE_SEARCH     = true;
+//    private static final int           MAX_THREADS            = 4;
+//    private static final Logger        LOGGER                 = LoggerFactory.getLogger(NaiveMinimaxTree.class);
+//    
+//    private Game game;
+//    private GoAi heuristic;
+////    private List<Score> preferredMoves;
+//    private Set<Score> legalMoves;
+//    private Map<Move, NaiveMinimaxTree> continuations;
+//    private Map<Move, Score> heuristicOutcomes;
+//    private Score leafNodeResult;
+//    private Score bestByHeuristic;
+//    private Score bestBySearch;
+//    private ScoreRecommender recommender;
+//    private ZobristHash zobristHash;
+//    
+//    public NaiveMinimaxTree( GoAi heuristic, ScoreRecommender recommender ) {
+//        this.heuristic = heuristic;
+//        this.recommender = recommender;
+//        this.game = Game.newBuilder(this.heuristic.getBoardSize()).build();
+//        this.continuations = new ConcurrentHashMap<>();
+//        
+//        getHeuristicOpinion();
+//        this.zobristHash = new ZobristHash(game);
+//    }
+//    
+//    public NaiveMinimaxTree( GoAi heuristic, ScoreRecommender recommender, Game game ) {
+//        this.heuristic = heuristic;
+//        this.recommender = recommender;
+//        
+//        if (game.isOver()) {
+//            Game resolution = game.resume();
+//            Score lastPass = heuristic.evaluate(game.getPreviousState(), PARALLELIZE_EVALUATION).getScoreFor(PASS);
+//            Map<Player, Score> noWorseThan = new HashMap<>();
+//            noWorseThan.put(resolution.getCurrentPlayer(), lastPass);
+//            noWorseThan.put(resolution.getCurrentPlayer().getOpposite(), lastPass.invert());
+//            
+//            while (!resolution.isOver()) {
+//                Evaluation evaluation = heuristic.evaluate(resolution, PARALLELIZE_EVALUATION);
+//                Score limit = noWorseThan.get(resolution.getCurrentPlayer());
+//                Score selected = recommender.recommendResolutionPlay(evaluation, limit).get();
+//                resolution = resolution.play(selected.getMove());
+//            }
+//            
+//            boolean contradiction = false;
+//            Set<Group> deadGroups = new HashSet<>();
+//            for (Group group : game.getGroupsOfStones()) {
+//                Boolean isDead = null;
+//                Intersection expected = group.type;
+//                for (Coordinate coordinate : group.members) {
+//                    Intersection actual = resolution.get(coordinate);
+//                    boolean flagAsDead = !expected.equals(actual);
+//                    if (isDead == null) {
+//                        isDead = flagAsDead;
+//                    } else if (isDead != flagAsDead) {
+//                        contradiction = true;
+//                        break;
+//                    }
+//                }
+//                if (contradiction) {
+//                    break;
+//                } else if (isDead) {
+//                    deadGroups.add(group);
+//                }
+//            }
+//            
+//            if (contradiction) {
+//                throw new IllegalStateException(
+//                    "The game cannot end like this; life and death could not be decided."
+//                );
+//            } else {
+//                this.game = game.score(deadGroups);
+//                Win outcome = (Win) this.game.getOutcome(); // this is sloppy, but Chinese games with komi must have a winner
+//                double playerResult, opponentResult;
+//                if (game.resume().getCurrentPlayer() == Stone.BLACK) {
+//                    playerResult = outcome.getBlackPointsOnBoard();
+//                    opponentResult = outcome.getWhitePointsOnBoard();
+//                } else {
+//                    playerResult = outcome.getWhitePointsOnBoard();
+//                    opponentResult = outcome.getBlackPointsOnBoard();
+//                }
+//                this.leafNodeResult = Score.createFromReadableScores(Pass.PASS, playerResult, opponentResult);
+//                LOGGER.debug("Completed Game:\n{}", this.game);
+//            }
+//        } else {
+//            this.game = game;
+//            this.continuations = new ConcurrentHashMap<>();
+//            getHeuristicOpinion();
+//        }
+//        
+//        this.zobristHash = new ZobristHash(this.game);
+//    }
+//    
+//    private void getHeuristicOpinion() {
+//        Evaluation evaluation = heuristic.evaluate(game, PARALLELIZE_EVALUATION);
+//        legalMoves = new HashSet<>(evaluation.getScores());
+//        heuristicOutcomes = legalMoves.stream().collect(
+//            Collectors.toMap(
+//                (score) -> score.getMove(),
+//                Function.identity()
+//            )
+//        );
+//        bestByHeuristic = recommender.recommendGamePlay(evaluation).get();
+//    }
+//    
+//    public Game getGame() {
+//        return game;
+//    }
+//    
+//    public ZobristHash getZobristHash() {
+//        return zobristHash;
+//    }
+//    
+//    public Map<Move, Score> getHeuristicEvaluations() {
+//        return new HashMap<>(heuristicOutcomes);
+//    }
+//    
+//    public Score chooseMoveByHeuristic() {
+//        return bestByHeuristic;
+//    }
+//    
+//    public Score chooseMoveBySearch() {
+//        bestBySearch = null;
+//        
+//        if (game.isOver()) {
+//            bestBySearch = leafNodeResult;
+//        } else if (continuations.size() == 0) {
+//            bestBySearch = bestByHeuristic;
+//        } else {
+//            for (Score score : legalMoves) {
+//                Score nextScore;
+//                
+//                Move move = score.getMove();
+//                NaiveMinimaxTree nextTree = continuations.get(move);
+//                if (nextTree == null) {
+//                    nextScore = heuristicOutcomes.get(move);
+//                } else {
+//                    Score childScore = nextTree.chooseMoveBySearch();
+//                    nextScore = Score.createFromReadableScores(
+//                        move,
+//                        childScore.getReadableOpponentScore(),
+//                        childScore.getReadablePlayerScore()
+//                    );
+//                }
+//                
+//                if (nextScore.isBetterThan(bestBySearch)) {
+//                    bestBySearch = nextScore;
+//                }
+//            }
+//        }
+//        
+//        return bestBySearch;
+//    }
+//    
+//    public void expandAll() {
+//        if (game.isOver()) {
+//            throw new IllegalStateException("The game is over in this node.");
+//        }
+//        
+//        for (Score score : preferredMoves) {
+//            Move move = score.getMove();
+//            if (!continuations.containsKey(move)) {
+//                Game next = game.play(move);
+//                NaiveMinimaxTree child = new NaiveMinimaxTree(heuristic, recommender, next);
+//                continuations.put(move, child);
+//            }
+//        }
+//    }
+//    
+//    public NaiveMinimaxTree expand( Move move ) {
+//        if (game.isOver()) {
+//            throw new IllegalStateException("The game is over in this node.");
+//        } else if (!game.getLegalMoves().contains(move)) {
+//            throw new IllegalStateException("The passed move is not legal for this node's game.");
+//        }
+//        
+//        NaiveMinimaxTree child = continuations.get(move);
+//        if (child == null) {
+//            Game next = game.play(move);
+//            child = new NaiveMinimaxTree(heuristic, recommender, next);
+//            continuations.put(move, child);
+//        }
+//        
+//        return child;
+//    }
+//    
+//    public NaiveMinimaxTree expand( Score score ) {
+//        return expand(score.getMove());
+//    }
+//    
+//    
+//    @Override
+//    public String toString() {
+//        if (leafNodeResult != null) {
+//            return String.format("MinimaxTree{\n%s\n}", representGame());
+//        } else {
+//            chooseMoveBySearch();
+//            
+//            StringBuilder builder = new StringBuilder("MinimaxTree{\n\tBEST HEURISTIC MOVE: ");
+//            builder.append(chooseMoveByHeuristic());
+//            builder.append("\n\tBEST SEARCH MOVE:    ");
+//            builder.append(bestBySearch);
+//            builder.append("\n\n\tGAME:\n");
+//            builder.append(representGame());
+//            builder.append("\n\n\tHEURISTIC EVALUATION:\n");
+//            builder.append(representEvaluation());
+//            builder.append("\n\tSEARCH RESULTS:\n");
+//            builder.append(representSearch());
+//            builder.append("}");
+//            return builder.toString();
+//        }
+//    }
+//    
+//    private String representGame() {
+//        String representation = game.toString();
+//        String[] lines = representation.split("[\\s&&[^ ]]+");
+//        for (int i = 0; i < lines.length; ++i) {
+//            lines[i] = "\t" + lines[i];
+//        }
+//        return String.join("\n", lines);
+//    }
+//    
+//    private String representEvaluation() {
+//        StringBuilder builder = new StringBuilder();
+//        
+//        for (int row = 0; row < game.getDimension(); ++row) {
+//            builder.append("\t");
+//            
+//            for (int column = 0; column < game.getDimension(); ++column) {
+//                if (column > 0) {
+//                    builder.append(" ");
+//                }
+//                
+//                Coordinate coordinate = Coordinate.get(column + 1, row + 1);
+//                builder.append(representScore(coordinate, heuristicOutcomes, bestBySearch));
+//            }
+//            builder.append("\n");
+//        }
+//        
+//        builder.append("\t");
+//        
+//        builder.append("PASS:       ");
+//        builder.append(representScore(PASS, heuristicOutcomes, bestBySearch));
+//        builder.append("\n");
+//        
+//        return builder.toString();
+//    }
+//    
+//    private String representScore( Move move, Map<Move, Score> legalMoves, Score selected ) {
+//        String representation = "___________";
+//        
+//        if (legalMoves.containsKey(move)) {
+//            String equivalentPrefix = " ";
+//            String equivalentSuffix = " ";
+//            String selectedPrefix = " ";
+//            String selectedSuffix = " ";
+//            
+//            Score currentScore = legalMoves.get(move);
+//            double result = currentScore.getReadableResult();
+//            if (currentScore.equals(selected)) {
+//                selectedPrefix = "<";
+//                selectedSuffix = ">";
+//            }
+//            if (result == selected.getReadableResult()) {
+//                equivalentPrefix = "<";
+//                equivalentSuffix = ">";
+//            }
+//            
+//            representation = String.format(
+//                "%s%s%+7.2f%s%s",
+//                selectedPrefix,
+//                equivalentPrefix,
+//                result,
+//                equivalentSuffix,
+//                selectedSuffix
+//            );
+//        }
+//        
+//        return representation;
+//    }
+//    
+//    private String representSearch() {
+//        StringBuilder builder = new StringBuilder();
+//        
+//        Map<Move, Score> moves = new HashMap<>();
+//        if (continuations != null) {
+//            for (Entry<Move, NaiveMinimaxTree> continuation : continuations.entrySet()) {
+//                Move move = continuation.getKey();
+//                NaiveMinimaxTree child = continuation.getValue();
+////                Score score = child.bestBySearch;
+//                Score childScore = child.bestBySearch;
+//                Score score = Score.createFromReadableScores(
+//                    move,
+//                    childScore.getReadableOpponentScore(),
+//                    childScore.getReadablePlayerScore()
+//                );
+//                moves.put(move, score);
+//            }
+//        }
+//        
+//        for (int row = 0; row < game.getDimension(); ++row) {
+//            builder.append("\t");
+//            
+//            for (int column = 0; column < game.getDimension(); ++column) {
+//                if (column > 0) {
+//                    builder.append(" ");
+//                }
+//                
+//                Coordinate coordinate = Coordinate.get(column + 1, row + 1);
+//                builder.append(representScore(coordinate, moves, bestBySearch));
+//            }
+//            builder.append("\n");
+//        }
+//        
+//        builder.append("\t");
+//        
+//        builder.append("PASS:       ");
+//        builder.append(representScore(PASS, moves, bestBySearch));
+//        builder.append("\n");
+//        
+//        return builder.toString();
+//    }
+//    
+//    
+//    public static void main( String[] args ) throws Exception {
+//        final int size = 9;
+//        GoAi heuristic = new GoAi(size, 7, 64, 10L);
+//        ScoreRecommender recommender = new FuzzyBestLocalInvariantRecommender();
+//        
+//        ExecutorService pool =
+//            PARALLELIZE_SEARCH ?
+////                Executors.newCachedThreadPool() :
+//                Executors.newFixedThreadPool(MAX_THREADS) :
+//                Executors.newSingleThreadExecutor();
+//        
+//        long start = System.nanoTime();
+//        NaiveMinimaxTree root = new NaiveMinimaxTree(heuristic, recommender);
+//        for (Score score : root.preferredMoves) {
+//            Thread thread = new ExpandHeuristicLineThread(root, score.getMove());
+//            pool.execute(thread);
+//        }
+//        pool.shutdown();
+//        pool.awaitTermination(1L, TimeUnit.DAYS);
+//        long end = System.nanoTime();
+//        LOGGER.info("Calculating the lines of play from an empty board took {} ms.", (end - start) / 1e6);
+//        LOGGER.info("Result:\n{}", root);
+//    }
+//    
+//    private static class ExpandHeuristicLineThread extends Thread {
+//        private Move move;
+//        private NaiveMinimaxTree root;
+//        
+//        public ExpandHeuristicLineThread( NaiveMinimaxTree root, Move move ) {
+//            this.move = move;
+//            this.root = root;
+//        }
+//        
+//        @Override
+//        public void run() {
+//            long start = System.nanoTime();
+//            
+//            Stack<NaiveMinimaxTree> path = new Stack<>();
+//            path.push(root);
+//            NaiveMinimaxTree cursor = root;
+//            
+//            boolean avoidPass = false;
+//            Move reference = move;
+//            while (!cursor.game.isOver()) {
+//                try {
+//                    if (reference != null) {
+//                        cursor = cursor.expand(reference);
+//                        reference = null;
+//                    } else {
+//                        Score score;
+//                        if (avoidPass && cursor.preferredMoves.size() > 1) {
+//                            score = cursor.preferredMoves.stream()
+//                                .filter(
+//                                    (x) -> x.getMove() != Pass.PASS
+//                                ).findFirst()
+//                                .get();
+//                        } else {
+//                            score = cursor.chooseMoveByHeuristic();
+//                        }
+//                        
+//                        cursor = cursor.expand(score);
+//                        if (score.getMove() != Pass.PASS) {
+//                            avoidPass = false;
+//                        }
+//                    }
+//                    path.push(cursor);
+//                } catch (IllegalStateException e) {
+//                    cursor.leafNodeResult = Score.createFromReadableScores(
+//                        move,
+//                        Double.MIN_NORMAL * 0.5,
+//                        0.
+//                    );
+//                    if (path.size() >= 2) {
+//                        path.pop();
+//                        cursor = path.pop();
+//                        avoidPass = true;
+//                    } else {
+//                        break;
+//                    }
+//                }
+//            }
+//            
+//            long end = System.nanoTime();
+//            LOGGER.info(
+//                "{} : Calculated from {} a heuristic line of play of {} moves in {} ms (avg {} per move).",
+//                COUNT.incrementAndGet(),
+//                move,
+//                cursor.game.getMovesPlayed(),
+//                (end - start) / 1e6,
+//                (end - start) / 1e6 / cursor.game.getMovesPlayed()
+//            );
+//        }
+//    }
+}
